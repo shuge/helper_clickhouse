@@ -10,8 +10,8 @@ def log_if_code_neq_200(func):
     @functools.wraps(func)
     def wrapper(self, sql, *args, **kwargs):
         r = func(self, sql, *args, **kwargs)
-        if r and r.status_code != 200:
-            msg = "curl '{url}' -d '{req_body}' resp code:{resp_code} body: {resp_body}".format(
+        if r is not None and r.status_code != 200:
+            msg = "curl '{url}' -d '{req_body}' \nresp.code:{resp_code} resp.body: {resp_body}".format(
                     url=self.compose_url(),
                 req_body=sql,
                 resp_code=r.status_code,
@@ -26,7 +26,7 @@ class ClickhouseProxy(object):
     # 16KB
     QUERY_MAX_SIZE = 16 * 1024
 
-    MAX_RECORDS = 1024
+    MAX_RECORDS = 10240
 
     # https://clickhouse.yandex/docs/en/interfaces/formats/
     FORMATS = (
@@ -40,7 +40,8 @@ class ClickhouseProxy(object):
         port_http=8123,
         username="default",
         password=None,
-        timeout=60.0,
+        dbn="default",
+        timeout=2.0,
         fmt="json",
         nodry=False,
         ):
@@ -50,6 +51,7 @@ class ClickhouseProxy(object):
         self.port_http = port_http
         self.username = username
         self.password = password
+        self.db = dbn
         self.timeout = timeout
 
         fmt = fmt.upper()
@@ -99,31 +101,34 @@ class ClickhouseProxy(object):
             return
 
         r = self.query(sql, nodry)
-        if r and r.status_code == 200:
-            if self.fmt == "JSON":
-                # NOTICE: create table on single node returns nothing
-                if not r.content:
-                    return []
+        if r is None:
+            return []
 
-                # NOTICE: append 'format JSON' into HTTP interface doesn't works as expected, you will get TabSeparated format.
-                # TODO: fixed me.
-                sql_lower = sql.lower()
-                if sql_lower.find("create table") != -1 and sql_lower.find("on cluster") != -1:
-                    return []
+        if r.status_code != 200:
+            return []
 
-                try:
-                    body_in_json = r.json()
-                except ValueError:
-                    traceback.print_exc(file=sys.stderr)
-                    msg = "expected response in JSON, got -%s-" % r.content
-                    self.logger.error(msg)
-                    raise
+        if self.fmt == "JSON":
+            # NOTICE: create table on single node returns nothing
+            if not r.content:
+                return []
 
-                return ClickhouseProxy.parse_json_resp(body_in_json)
-            else:
-                return r.content
+            # NOTICE: append 'format JSON' into HTTP interface doesn't works as expected, you will get TabSeparated format.
+            # TODO: fixed me.
+            sql_lower = sql.lower()
+            if sql_lower.find("create table") != -1 and sql_lower.find("on cluster") != -1:
+                return []
 
-        return []
+            try:
+                body_in_json = r.json()
+            except ValueError:
+                traceback.print_exc(file=sys.stderr)
+                msg = "expected response in JSON, got -%s-" % r.content
+                self.logger.error(msg)
+                raise
+
+            return ClickhouseProxy.parse_json_resp(body_in_json)
+        else:
+            return r.content
 
     @staticmethod
     def parse_json_resp(resp):
@@ -192,7 +197,7 @@ class ClickhouseProxy(object):
         return changes
 
     def alter_table(self, tbl_name, changes, cluster=None):
-        tpl = "ALTER TABLE {tbl_name} {on_cluster} {actions}"
+        tpl = "ALTER TABLE {dbn}.{tbl_name} {on_cluster} {actions}"
 
         actions = []
         for item in changes:
@@ -216,12 +221,14 @@ class ClickhouseProxy(object):
 
         if cluster:
             sql = tpl.format(
+               dbn=self.dbn,
                tbl_name=tbl_name,
                actions=", ".join(actions),
                on_cluster="ON CLUSTER %s" % cluster.strip(),
             )
         else:
             sql = tpl.format(
+               dbn=self.dbn,
                tbl_name=tbl_name,
                actions=", ".join(actions),
                on_cluster="",
@@ -239,7 +246,8 @@ class ClickhouseProxy(object):
 
     def delete_partition(self, partition, table, cluster=None):
         if cluster:
-            sql = 'ALTER TABLE default.{table} on cluster {cluster} DROP PARTITION {partition}'.format(
+            sql = 'ALTER TABLE {dbn}.{table} on cluster {cluster} DROP PARTITION {partition}'.format(
+                dbn=self.dbn,
                 table=table,
                 cluster=cluster,
                 partition=partition,
@@ -250,6 +258,14 @@ class ClickhouseProxy(object):
                 partition=partition,
             )
         return self.query_parse(sql=sql, nodry=self.nodry)
+
+    def list_cluster_nodes(self, cluster=None):
+        if cluster:
+            sql = "SELECT * FROM system.clusters WHERE cluster='%s'" % cluster
+        else:
+            sql = 'SELECT * FROM system.clusters' 
+
+        return self.query_parse(sql=sql, nodry=True)
 
 
 
