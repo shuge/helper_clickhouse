@@ -5,7 +5,7 @@ except ImportError:
 
 setup(
     name='helper_clickhouse',
-    version='0.0.1',
+    version='0.0.2',
     url='https://github.com/shuge/helper_clickhouse',
     license='MIT License',
     author='Shuge Lee',
