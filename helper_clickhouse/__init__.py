@@ -132,7 +132,40 @@ class ClickhouseProxy(object):
 
     @staticmethod
     def parse_json_resp(resp):
-        if "data" in resp:
+        """
+        NOTICE: clickhouse HTTP service reponse all record all Int* UInt* fields in string, not base on what extract its type in meta.
+
+        Change runtime setting could walk around it, compare following output
+
+            SET output_format_json_quote_64bit_integers = 0;
+            select count() from test FORMAT JSON;
+            # "count()" => 0
+
+            SET output_format_json_quote_64bit_integers = 1;
+            select count() from test FORMAT JSON;
+            # "count()" => "0"
+
+        See also:
+         - https://github.com/yandex/ClickHouse/issues/2375
+         - https://github.com/yandex/ClickHouse/pull/952
+        """
+        if "data" in resp and "meta" in resp:
+            field_type_map = dict()
+            for item in resp["meta"]:
+                field_type_map[item["name"]] = item["type"]
+            for record in resp["data"]:
+                for k in record.keys():
+                    v = record[k]
+                    t = field_type_map[k]
+                    if t in (
+                        'Int8', 'UInt8', 'Int16','UInt16', 'Int32','UInt32', 'Int64', 'UInt64',
+                        ):
+                        record[k] = int(v)
+                    elif t in (
+                        'Float32','Float64'
+                    ):
+                        record[k] = float(v)
+
             return resp["data"]
 
     def show_tables(self):
