@@ -26,7 +26,7 @@ class ClickhouseProxy(object):
     # 16KB
     QUERY_MAX_SIZE = 16 * 1024
 
-    MAX_RECORDS = 10240
+    MAX_RECORDS = 10000
 
     # https://clickhouse.yandex/docs/en/interfaces/formats/
     FORMATS = (
