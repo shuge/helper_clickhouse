@@ -300,6 +300,17 @@ class ClickhouseProxy(object):
 
         return self.query_parse(sql=sql, nodry=True)
 
+    def exists(self, var: str) -> bool:
+        """
+        See also https://clickhouse-docs.readthedocs.io/en/latest/query_language/queries.html#exists
+        :param var: string, is <table name>, or <database name>.<table name>.
+        :return: bool
+        """
+        sql = 'EXISTS %s' % var
+        for row in self.query_parse(sql=sql, nodry=True):
+            return row["result"]
+        return False
+
 
 
 logger = logging.Logger(__name__)
