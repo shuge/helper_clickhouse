@@ -160,11 +160,13 @@ class ClickhouseProxy(object):
                     if t in (
                         'Int8', 'UInt8', 'Int16','UInt16', 'Int32','UInt32', 'Int64', 'UInt64',
                         ):
-                        record[k] = int(v)
+                        if v is not None:
+                            record[k] = int(v)
                     elif t in (
                         'Float32','Float64'
                     ):
-                        record[k] = float(v)
+                        if v is not None:
+                            record[k] = float(v)
 
             return resp["data"]
 
